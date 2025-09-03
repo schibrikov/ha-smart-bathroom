@@ -10,207 +10,355 @@ Read more: https://community.home-assistant.io/t/smart-bathroom-occupancy-light-
   domain: automation
   source_url: https://github.com/muratcesmecioglu/ha-smart-bathroom/blob/main/smart-bathroom.yaml
   input:
+    motion_sensor:
+      name: Motion/Occupancy Sensor
+      description: Motion or occupancy sensor in the bathroom
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+            device_class: 
+              - motion
+              - occupancy
     door_sensor:
       name: Door Sensor
-      description: Door sensor entity
+      description: Door sensor for the bathroom
       selector:
         entity:
-          domain: binary_sensor
-    motion_sensor:
-      name: Motion Sensor
-      description: Motion sensor entity
+          filter:
+            domain: binary_sensor
+    light_entity:
+      name: Light or Switch
+      description: The light or switch to control
       selector:
         entity:
-          domain: binary_sensor
-    light:
-      name: Light
-      description: Light to control
+          filter:
+            domain: 
+              - light
+              - switch
+    occupied_helper:
+      name: Bathroom Occupied Helper
+      description: Input boolean to track if bathroom is occupied
       selector:
         entity:
-          domain: 
-            - light
-            - switch
-    occupancy_helper:
-      name: Occupancy Helper
-      description: Input boolean to track occupancy state
+          filter:
+            domain: input_boolean
+    entering_helper:
+      name: Entering Helper
+      description: Input boolean to track entering state
       selector:
         entity:
-          domain: input_boolean
+          filter:
+            domain: input_boolean
+    entered_helper:
+      name: Entered Helper
+      description: Input boolean to track entered state
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
+    exiting_helper:
+      name: Exiting Helper
+      description: Input boolean to track exiting state
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
+    motion_timeout:
+      name: Motion/Occupancy Timeout
+      description: How long to wait after motion/occupancy stops before turning off light (when bathroom is empty)
+      default: 25
+      selector:
+        number:
+          min: 5
+          max: 300
+          step: 1
+          unit_of_measurement: seconds
+          mode: slider
 
-    door_close_wait_time:
-      name: Door Close Wait Time
-      description: Time in seconds to wait for door to close after motion detection (Default=6)
-      default: 6
-      selector:
-        number:
-          min: 1
-          max: 20
-          step: 1
-          unit_of_measurement: seconds
-    
-    light_off_after_motion_clears:
-      name: Light Off After Motion Time
-      description: Time in seconds to wait after motion clears before turning off light when the door remains open.
-      default: 10
-      selector:
-        number:
-          min: 1
-          max: 60
-          step: 1
-          unit_of_measurement: seconds
-    
-    door_open_motion_clear:
-      name: Motion cleared with door open timeout
-      description: Time in seconds to takes for the lights to turn off after entering and exiting when the door open.
-      default: 10
-      selector:
-        number:
-          min: 1
-          max: 60
-          step: 1
-          unit_of_measurement: seconds
-    
-    exit_timeout:
-      name:  Room Exit Timeout
-      description: Time in seconds to wait before turning off the light after a person exits the room (when the door opens and the room was previously occupied). Gives you enough time to leave before lights turn off.
-      default: 10
-      selector:
-        number:
-          min: 1
-          max: 60
-          step: 1
-          unit_of_measurement: seconds
-
-
+alias: Smart Bathroom Occupancy Light Control
+description: ""
+triggers:
+  - trigger: state
+    entity_id: !input motion_sensor
+    id: motion_sensor_on
+    from: "off"
+    to: "on"
+  - trigger: state
+    entity_id: !input motion_sensor
+    id: motion_sensor_off
+    from: "on"
+    to: "off"
+  - trigger: state
+    entity_id: !input door_sensor
+    id: door_sensor_on
+    from: "off"
+    to: "on"
+  - trigger: state
+    entity_id: !input door_sensor
+    id: door_sensor_off
+    from: "on"
+    to: "off"
+conditions: []
 variables:
-  door_sensor: !input door_sensor
-  motion_sensor: !input motion_sensor
-  light: !input light
-  occupancy_helper: !input occupancy_helper
-  door_close_wait_time: !input door_close_wait_time
-  light_off_after_motion_clears: !input light_off_after_motion_clears
-  door_open_motion_clear: !input door_open_motion_clear
-  exit_timeout: !input exit_timeout
-
-trigger:
-  - platform: state
-    entity_id: !input door_sensor
-    to: "on"
-    id: door_opened
-  - platform: state
-    entity_id: !input door_sensor
-    to: "off"
-    id: door_closed
-  - platform: state
-    entity_id: !input motion_sensor
-    to: "on"
-    id: motion_detected
-  - platform: state
-    entity_id: !input motion_sensor
-    to: "off"
-    id: motion_cleared
-
-action:
-  - variables:
-      is_occupied: "{{ is_state(occupancy_helper, 'on') }}"
-      door_is_open: "{{ is_state(door_sensor, 'on') }}"
-      motion_is_active: "{{ is_state(motion_sensor, 'on') }}"
-      trigger_type: "{{ trigger.id }}"
-  
-  # CASE 1: Helper is OFF and door opens
+  light_entity: !input light_entity
+actions:
   - choose:
       - conditions:
-          - "{{ not is_occupied and trigger_type == 'door_opened' }}"
+          - condition: trigger
+            id:
+              - door_sensor_on
         sequence:
-          - service: switch.turn_on
-            target:
-              entity_id: !input light
-  
-      # CASE 2: Helper is OFF, motion detected
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input occupied_helper
+                    state: "on"
+                sequence:
+                  - if:
+                      - condition: state
+                        entity_id: !input light_entity
+                        state: "off"
+                    then:
+                      - if:
+                          - condition: template
+                            value_template: "{{ light_entity.startswith('light.') }}"
+                        then:
+                          - action: light.turn_on
+                            target:
+                              entity_id: !input light_entity
+                        else:
+                          - action: switch.turn_on
+                            target:
+                              entity_id: !input light_entity
+                    alias: Door Opens When Bathroom Occupied but Light Off -> Turn On Light
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: !input exiting_helper
+                    alias: Started Exiting
+                alias: Door Opens When Bathroom Occupied -> Exiting
+              - conditions:
+                  - condition: state
+                    entity_id: !input occupied_helper
+                    state: "off"
+                sequence:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: !input entering_helper
+                    alias: Started Entering
+                  - if:
+                      - condition: template
+                        value_template: "{{ light_entity.startswith('light.') }}"
+                    then:
+                      - action: light.turn_on
+                        target:
+                          entity_id: !input light_entity
+                    else:
+                      - action: switch.turn_on
+                        target:
+                          entity_id: !input light_entity
+                alias: Door Opens When Bathroom Empty -> Entering
+            enabled: true
+        alias: When Door Opens
       - conditions:
-          - "{{ not is_occupied and trigger_type == 'motion_detected' }}"
+          - condition: trigger
+            id:
+              - door_sensor_off
         sequence:
-          - service: switch.turn_on
-            target:
-              entity_id: !input light
-          # Wait for door to close or stay open
-          - wait_for_trigger:
-              - platform: state
-                entity_id: !input door_sensor
-                to: "off"
-            timeout:
-              seconds: "{{ door_close_wait_time }}"
-            continue_on_timeout: true
-          - if:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input entered_helper
+                    state: "on"
+                sequence:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: !input occupied_helper
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input entered_helper
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input exiting_helper
+                alias: Door Closes When Entered -> Bathroom Occupied
+              - conditions:
+                  - condition: state
+                    entity_id: !input exiting_helper
+                    state: "on"
+                sequence:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input occupied_helper
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input exiting_helper
+                alias: Door Closes When Exiting
+            enabled: true
+          - alias: Door Closes When Bathroom Empty -> Turn Off Light
+            if:
+              - condition: state
+                entity_id: !input occupied_helper
+                state: "off"
+            then:
+              - wait_for_trigger:
+                  - trigger: state
+                    entity_id: !input motion_sensor
+                    to: "off"
+                    from: "on"
+                timeout:
+                  seconds: !input motion_timeout
+                continue_on_timeout: false
+              - if:
+                  - condition: template
+                    value_template: "{{ light_entity.startswith('light.') }}"
+                then:
+                  - action: light.turn_off
+                    target:
+                      entity_id: !input light_entity
+                else:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: !input light_entity
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: !input entering_helper
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: !input exiting_helper
+        alias: When Door Closes
+      - conditions:
+          - condition: trigger
+            id:
+              - motion_sensor_on
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input entering_helper
+                    state: "on"
+                sequence:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: !input entered_helper
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input entering_helper
+                alias: Motion Detected When Entering -> Entered
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity_id: !input exiting_helper
+                        state: "on"
+                      - condition: state
+                        entity_id: !input entered_helper
+                        state: "on"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: "{{ light_entity.startswith('light.') }}"
+                    then:
+                      - action: light.turn_on
+                        target:
+                          entity_id: !input light_entity
+                    else:
+                      - action: switch.turn_on
+                        target:
+                          entity_id: !input light_entity
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: !input entered_helper
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input exiting_helper
+                    enabled: true
+                alias: Door Open When Entered
+          - alias: Motion When Door Closed -> Turn On Light, Set Occupied
+            if:
               - condition: state
                 entity_id: !input door_sensor
                 state: "off"
+                enabled: true
             then:
-              - service: input_boolean.turn_on
+              - if:
+                  - condition: template
+                    value_template: "{{ light_entity.startswith('light.') }}"
+                then:
+                  - action: light.turn_on
+                    target:
+                      entity_id: !input light_entity
+                else:
+                  - action: switch.turn_on
+                    target:
+                      entity_id: !input light_entity
+              - action: input_boolean.turn_on
                 target:
-                  entity_id: !input occupancy_helper
-            else:
-              # Door is still open, wait for motion to clear
-              - wait_for_trigger:
-                  - platform: state
-                    entity_id: !input motion_sensor
-                    to: "off"
-              - delay:
-                  seconds: "{{ light_off_after_motion_clears }}"
-              - service: switch.turn_off
-                target:
-                  entity_id: !input light
-      
-      # CASE 3: Helper is OFF, no motion and door closes
+                  entity_id: !input occupied_helper
+        alias: When Motion Starts
       - conditions:
-          - "{{ not is_occupied and trigger_type == 'door_closed' and not motion_is_active }}"
+          - condition: trigger
+            id:
+              - motion_sensor_off
         sequence:
-          - service: switch.turn_off
-            target:
-              entity_id: !input light
-      
-      # CASE 4: Helper is OFF, motion cleared with door open
-      - conditions:
-          - "{{ not is_occupied and trigger_type == 'motion_cleared' and door_is_open }}"
-        sequence:
-          - delay:
-              seconds: "{{ door_open_motion_clear }}"
-          - condition: state
-            entity_id: !input door_sensor
-            state: "on"
-          - condition: state
-            entity_id: !input motion_sensor
-            state: "off"
-          - service: switch.turn_off
-            target:
-              entity_id: !input light
-      
-      # CASE 5: Helper is ON, door opens with motion active
-      - conditions:
-          - "{{ is_occupied and trigger_type == 'door_opened' and motion_is_active }}"
-        sequence:
-          - wait_for_trigger:
-              - platform: state
-                entity_id: !input motion_sensor
-                to: "off"
-          - delay:
-              seconds: "{{ exit_timeout }}"
-          - service: switch.turn_off
-            target:
-              entity_id: !input light
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input occupancy_helper
-      
-      # CASE 6: Helper is ON, door opens with no motion
-      - conditions:
-          - "{{ is_occupied and trigger_type == 'door_opened' and not motion_is_active }}"
-        sequence:
-          - delay:
-              seconds: "{{ exit_timeout }}"
-          - service: switch.turn_off
-            target:
-              entity_id: !input light
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input occupancy_helper
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input occupied_helper
+                    state: "off"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: "{{ light_entity.startswith('light.') }}"
+                    then:
+                      - action: light.turn_off
+                        target:
+                          entity_id: !input light_entity
+                    else:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: !input light_entity
+                alias: Motion Stops When Bathroom Empty -> Turn Off Light
+              - conditions:
+                  - condition: state
+                    entity_id: !input exiting_helper
+                    state: "on"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: "{{ light_entity.startswith('light.') }}"
+                    then:
+                      - action: light.turn_off
+                        target:
+                          entity_id: !input light_entity
+                    else:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: !input light_entity
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: !input occupied_helper
+                alias: Motion Stops When Exiting
+              - conditions:
+                  - condition: state
+                    entity_id: !input entered_helper
+                    state: "on"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: "{{ light_entity.startswith('light.') }}"
+                    then:
+                      - action: light.turn_off
+                        target:
+                          entity_id: !input light_entity
+                    else:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: !input light_entity
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id:
+                        - !input exiting_helper
+                        - !input entered_helper
+                alias: Entered But No Motion = Entered and Left?
+        alias: When Motion Stops
+mode: restart
