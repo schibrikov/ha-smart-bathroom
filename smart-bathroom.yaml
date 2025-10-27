@@ -1,7 +1,12 @@
 blueprint:
-  name: "🚽💡 Smart Bathroom Occupancy Light Control (with Scene)"
+  name: "🚽💡 Smart Bathroom Occupancy Light Control"
   author: Murat Çeşmecioğlu
-  description: "Same logic as original; turns ON via a scene instead of directly switching the light."
+  description: " __If a hornet enters a closed box – it’s trapped. If the box opens – it’s gone. Now apply that logic to your bathroom.__ \n\n\n
+This blueprint lets you automate lights in bathrooms or toilets using door and motion sensors with military precision.\n\n
+'Hornet in The Box' Principle: When the door closes (box sealed), occupancy is 100% certain. When it opens, the space is clear.\n\n
+Perfect for triggering lights, exhaust fans, or even occupancy alerts in windowless rooms. \n\n
+Why it’s bulletproof: Eliminates false triggers by cross-validating door + motion + time delays.\n\n
+Read more: https://community.home-assistant.io/t/smart-bathroom-occupancy-light-control/874353"
   domain: automation
   source_url: https://github.com/muratcesmecioglu/ha-smart-bathroom/blob/main/smart-bathroom.yaml
   input:
@@ -17,23 +22,18 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
-
-    # Light entity still used for OFF actions
     light:
       name: Light
-      description: Light (or switch) to turn OFF
+      description: Light to control
       selector:
         entity:
           domain: switch
-
-    # NEW: mandatory scene to activate on ON events
-    activate_scene:
+    scene:
       name: Scene
-      description: Scene to activate when bathroom turns ON
+      description: Scene to activate when turning on
       selector:
         entity:
           domain: scene
-
     occupancy_helper:
       name: Occupancy Helper
       description: Input boolean to track occupancy state
@@ -75,7 +75,7 @@ blueprint:
           unit_of_measurement: seconds
     
     exit_timeout:
-      name: Room Exit Timeout
+      name:  Room Exit Timeout
       description: Time in seconds to wait before turning off the light after a person exits the room (when the door opens and the room was previously occupied). Gives you enough time to leave before lights turn off.
       default: 10
       selector:
@@ -85,11 +85,12 @@ blueprint:
           step: 1
           unit_of_measurement: seconds
 
+
 variables:
   door_sensor: !input door_sensor
   motion_sensor: !input motion_sensor
   light: !input light
-  activate_scene: !input activate_scene
+  scene: !input scene
   occupancy_helper: !input occupancy_helper
   door_close_wait_time: !input door_close_wait_time
   light_off_after_motion_clears: !input light_off_after_motion_clears
@@ -121,22 +122,22 @@ action:
       motion_is_active: "{{ is_state(motion_sensor, 'on') }}"
       trigger_type: "{{ trigger.id }}"
   
+  # CASE 1: Helper is OFF and door opens
   - choose:
-      # CASE 1: Helper is OFF and door opens -> ACTIVATE SCENE
       - conditions:
           - "{{ not is_occupied and trigger_type == 'door_opened' }}"
         sequence:
           - service: scene.turn_on
             target:
-              entity_id: !input activate_scene
-
-      # CASE 2: Helper is OFF, motion detected -> ACTIVATE SCENE
+              entity_id: !input scene
+  
+      # CASE 2: Helper is OFF, motion detected
       - conditions:
           - "{{ not is_occupied and trigger_type == 'motion_detected' }}"
         sequence:
           - service: scene.turn_on
             target:
-              entity_id: !input activate_scene
+              entity_id: !input scene
           # Wait for door to close or stay open
           - wait_for_trigger:
               - platform: state
@@ -165,7 +166,7 @@ action:
                 target:
                   entity_id: !input light
       
-      # CASE 3: Helper is OFF, no motion and door closes -> turn OFF light
+      # CASE 3: Helper is OFF, no motion and door closes
       - conditions:
           - "{{ not is_occupied and trigger_type == 'door_closed' and not motion_is_active }}"
         sequence:
@@ -173,7 +174,7 @@ action:
             target:
               entity_id: !input light
       
-      # CASE 4: Helper is OFF, motion cleared with door open -> timed OFF
+      # CASE 4: Helper is OFF, motion cleared with door open
       - conditions:
           - "{{ not is_occupied and trigger_type == 'motion_cleared' and door_is_open }}"
         sequence:
@@ -189,7 +190,7 @@ action:
             target:
               entity_id: !input light
       
-      # CASE 5: Helper is ON, door opens with motion active -> exit, then OFF
+      # CASE 5: Helper is ON, door opens with motion active
       - conditions:
           - "{{ is_occupied and trigger_type == 'door_opened' and motion_is_active }}"
         sequence:
@@ -206,7 +207,7 @@ action:
             target:
               entity_id: !input occupancy_helper
       
-      # CASE 6: Helper is ON, door opens with no motion -> timed OFF
+      # CASE 6: Helper is ON, door opens with no motion
       - conditions:
           - "{{ is_occupied and trigger_type == 'door_opened' and not motion_is_active }}"
         sequence:
