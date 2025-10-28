@@ -397,29 +397,50 @@ actions:
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input occupancy_helper
-              # Person entered but stopped moving - maybe left quickly
+              # Person entered but stopped moving - maybe left quickly (BUGFIXED)
               - conditions:
                   - condition: state
                     entity_id: !input entered_helper
                     state: "on"
                 sequence:
-                  - if:
-                      - condition: template
-                        value_template: "{{ is_light_entity }}"
-                    then:
-                      - service: light.turn_off
-                        target:
-                          entity_id: !input light_switch
-                    else:
-                      - service: switch.turn_off
-                        target:
-                          entity_id: !input light_switch
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id:
-                        - !input exiting_helper
-                        - !input entered_helper
-                        - !input occupancy_helper
+                  - choose:
+                      # If door is OPEN, assume they left quickly -> turn off & clear all
+                      - conditions:
+                          - condition: state
+                            entity_id: !input door_sensor
+                            state: "on"
+                        sequence:
+                          - if:
+                              - condition: template
+                                value_template: "{{ is_light_entity }}"
+                            then:
+                              - service: light.turn_off
+                                target:
+                                  entity_id: !input light_switch
+                            else:
+                              - service: switch.turn_off
+                                target:
+                                  entity_id: !input light_switch
+                          - service: input_boolean.turn_off
+                            target:
+                              entity_id:
+                                - !input exiting_helper
+                                - !input entered_helper
+                                - !input occupancy_helper
+                      # If door is CLOSED and occupancy is set, DO NOT clear occupancy or turn off lights
+                      - conditions:
+                          - condition: state
+                            entity_id: !input door_sensor
+                            state: "off"
+                        sequence:
+                          - service: input_boolean.turn_on
+                            target:
+                              entity_id: !input occupancy_helper
+                          - service: input_boolean.turn_off
+                            target:
+                              entity_id:
+                                - !input exiting_helper
+                                - !input entered_helper
               # Occupied but no motion - safety timeout
               - conditions:
                   - condition: state
