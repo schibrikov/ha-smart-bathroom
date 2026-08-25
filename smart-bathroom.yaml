@@ -210,6 +210,24 @@ actions:
             id: door_close
         sequence:
           - choose:
+              # Person exited, mark as empty (checked first: exiting_helper reflects
+              # the most recent door-open event and must win over a stale entered_helper
+              # that didn't get cleared in time, otherwise occupancy gets stuck "on" and
+              # the light only turns off via the max_idle_time safety timeout)
+              - conditions:
+                  - condition: state
+                    entity_id: !input exiting_helper
+                    state: "on"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input occupancy_helper
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input exiting_helper
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input entered_helper
               # Person entered, mark as occupied
               - conditions:
                   - condition: state
@@ -222,18 +240,6 @@ actions:
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input entered_helper
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: !input exiting_helper
-              # Person exited, mark as empty
-              - conditions:
-                  - condition: state
-                    entity_id: !input exiting_helper
-                    state: "on"
-                sequence:
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: !input occupancy_helper
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input exiting_helper
