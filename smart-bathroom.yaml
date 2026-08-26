@@ -93,7 +93,7 @@ blueprint:
     max_idle_time:
       name: Maximum Idle Time
       description: Maximum time to keep light on without motion when occupied
-      default: 15
+      default: 5
       selector:
         number:
           min: 5
