@@ -415,7 +415,8 @@ actions:
                       entity_id: !input occupancy_helper
               # Person entered but stopped moving - stay occupied and keep the
               # light on regardless of door state (never turn off while someone
-              # may still be in the room with the door propped open)
+              # may still be in the room with the door propped open). The idle
+              # safety timeout below decides how long that grace period lasts.
               - conditions:
                   - condition: state
                     entity_id: !input entered_helper
@@ -429,17 +430,24 @@ actions:
                       entity_id:
                         - !input exiting_helper
                         - !input entered_helper
-              # Occupied but no motion - safety timeout
-              - conditions:
+          # Occupied but no more motion for a while - safety timeout, regardless
+          # of whether the door is open or closed. Covers both "sitting still
+          # with the door closed" and "door propped open, room now empty" -
+          # neither case can be told apart from the sensors alone, so both get
+          # the same generous grace period; any resumed motion cancels this via
+          # mode: restart and turns the light straight back on.
+          - if:
+              - condition: state
+                entity_id: !input occupancy_helper
+                state: "on"
+            then:
+              - delay:
+                  minutes: "{{ max_idle_minutes }}"
+              - if:
                   - condition: state
-                    entity_id: !input occupancy_helper
-                    state: "on"
-                  - condition: state
-                    entity_id: !input door_sensor
+                    entity_id: !input motion_sensor
                     state: "off"
-                sequence:
-                  - delay:
-                      minutes: "{{ max_idle_minutes }}"
+                then:
                   - if:
                       - condition: template
                         value_template: "{{ is_light_entity }}"
@@ -453,6 +461,9 @@ actions:
                           entity_id: !input light_switch
                   - service: input_boolean.turn_off
                     target:
-                      entity_id: !input occupancy_helper
+                      entity_id:
+                        - !input occupancy_helper
+                        - !input entering_helper
+                        - !input exiting_helper
 
 mode: restart
