@@ -82,8 +82,8 @@ blueprint:
           mode: slider
     motion_timeout:
       name: Motion Sensor Timeout
-      description: Delay after door closes to check motion sensor (should be 1 seconds more than motion sensor timeout)
-      default: 21
+      description: Maximum time to wait for the motion sensor to report "clear" after the door closes. The automation reacts as soon as the sensor actually clears (usually faster than this), this value is just the upper bound before giving up and assuming the room is still occupied.
+      default: 40
       selector:
         number:
           min: 15
@@ -249,8 +249,12 @@ actions:
                 entity_id: !input occupancy_helper
                 state: "off"
             then:
-              - delay:
-                  seconds: "{{ motion_timeout_seconds }}"
+              # React as soon as the sensor actually clears instead of blindly
+              # waiting the full timeout - falls back to it only if the sensor
+              # is still reporting "on" (real reporting lag, commonly 15-45s)
+              - wait_template: "{{ states(motion_sensor_entity) == 'off' }}"
+                timeout: "{{ motion_timeout_seconds }}"
+                continue_on_timeout: true
               - if:
                   - condition: state
                     entity_id: !input motion_sensor
@@ -383,11 +387,17 @@ actions:
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input entered_helper
-              # Person was exiting - turn off light and mark empty
+              # Person was exiting - turn off light and mark empty (only once the
+              # door has actually closed; while it's still open we don't know if
+              # they're leaving or just holding it open, e.g. drying hair - the
+              # door_close handler finalizes the exit reliably once it does close)
               - conditions:
                   - condition: state
                     entity_id: !input exiting_helper
                     state: "on"
+                  - condition: state
+                    entity_id: !input door_sensor
+                    state: "off"
                 sequence:
                   - if:
                       - condition: template
@@ -403,50 +413,22 @@ actions:
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input occupancy_helper
-              # Person entered but stopped moving - maybe left quickly (BUGFIXED)
+              # Person entered but stopped moving - stay occupied and keep the
+              # light on regardless of door state (never turn off while someone
+              # may still be in the room with the door propped open)
               - conditions:
                   - condition: state
                     entity_id: !input entered_helper
                     state: "on"
                 sequence:
-                  - choose:
-                      # If door is OPEN, assume they left quickly -> turn off & clear all
-                      - conditions:
-                          - condition: state
-                            entity_id: !input door_sensor
-                            state: "on"
-                        sequence:
-                          - if:
-                              - condition: template
-                                value_template: "{{ is_light_entity }}"
-                            then:
-                              - service: light.turn_off
-                                target:
-                                  entity_id: !input light_switch
-                            else:
-                              - service: switch.turn_off
-                                target:
-                                  entity_id: !input light_switch
-                          - service: input_boolean.turn_off
-                            target:
-                              entity_id:
-                                - !input exiting_helper
-                                - !input entered_helper
-                                - !input occupancy_helper
-                      # If door is CLOSED and occupancy is set, DO NOT clear occupancy or turn off lights
-                      - conditions:
-                          - condition: state
-                            entity_id: !input door_sensor
-                            state: "off"
-                        sequence:
-                          - service: input_boolean.turn_on
-                            target:
-                              entity_id: !input occupancy_helper
-                          - service: input_boolean.turn_off
-                            target:
-                              entity_id:
-                                - !input exiting_helper
-                                - !input entered_helper
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: !input occupancy_helper
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id:
+                        - !input exiting_helper
+                        - !input entered_helper
               # Occupied but no motion - safety timeout
               - conditions:
                   - condition: state
